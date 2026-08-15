@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Queens — dchirez.fr</title>
+<meta name="description" content="Queens en ligne : placez une reine par ligne, par colonne et par région colorée. Grilles 8×8, 9×9 et 10×10 à solution unique générées à la volée.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%91%91%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="ds.css">
+<style>
+  /* Les rôles du jeu sont branchés sur les tokens du design system (ds.css) :
+     l'orange reste la marque, le violet signale les indices, le rouge est
+     réservé aux conflits entre reines. */
+  :root{
+    --papier:var(--bg-page);
+    --grille:var(--surface-card);
+    --encre:var(--text-strong);
+    --encre-douce:var(--text-muted);
+    --indice:var(--accent-2);
+    --erreur:var(--red-500);
+    --trait:var(--border);
+    --trait-fort:var(--ink-800);
+    --fdisplay:var(--font-display);
+    --fmono:var(--font-mono);
+    --fsans:var(--font-sans);
+
+    /* Largeur commune au plateau et aux barres : bornée par la hauteur de
+       fenêtre pour que la grille et les boutons restent visibles ensemble. */
+    --largeur:max(260px, min(94vw, 560px, calc(100vh - 360px)));
+    --largeur:max(260px, min(94vw, 560px, calc(100dvh - 360px)));
+
+    /* Palette des régions — 10 teintes pastel distinctes, glyphe sombre lisible */
+    --r0:#f9b8b0;
+    --r1:#fbd08a;
+    --r2:#f4ea92;
+    --r3:#bfe3a0;
+    --r4:#8fd9c4;
+    --r5:#a4cef2;
+    --r6:#b9b3ec;
+    --r7:#f2b0d8;
+    --r8:#d8c3a2;
+    --r9:#d3d8de;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html{ -webkit-text-size-adjust:100%; }
+  body{
+    background:var(--papier);
+    color:var(--encre);
+    font-family:var(--fsans);
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding:20px 14px 40px;
+  }
+
+  /* ---------- En-tête ---------- */
+  header{ text-align:center; margin-bottom:18px; }
+  .eyebrow{
+    font-family:var(--fmono);
+    font-size:12px;
+    letter-spacing:.22em;
+    text-transform:uppercase;
+    color:var(--encre-douce);
+  }
+  h1{
+    font-family:var(--fdisplay);
+    font-weight:var(--weight-bold);
+    font-size:clamp(34px, 7vw, 52px);
+    letter-spacing:var(--tracking-tight);
+    line-height:var(--leading-tight);
+  }
+  h1 .point{ color:var(--accent); }
+  .sous-titre{
+    font-size:13px;
+    color:var(--encre-douce);
+    margin-top:4px;
+  }
+
+  /* ---------- Difficultés ---------- */
+  .difficultes{
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:center;
+    gap:8px;
+    margin-bottom:16px;
+  }
+  .chip{
+    font-family:var(--fsans);
+    font-size:13px;
+    font-weight:600;
+    padding:8px 14px;
+    border:1.5px solid var(--trait);
+    border-radius:999px;
+    background:var(--grille);
+    color:var(--encre-douce);
+    cursor:pointer;
+    transition:border-color .15s, color .15s, background .15s;
+  }
+  .chip:hover{ border-color:var(--encre); color:var(--encre); }
+  .chip[aria-pressed="true"]{
+    background:var(--accent);
+    border-color:var(--accent);
+    color:var(--accent-on);
+  }
+  .chip:focus-visible, button:focus-visible{
+    outline:none;
+    box-shadow:var(--ring-accent);
+  }
+
+  /* ---------- Barre d'état ---------- */
+  .etat{
+    width:var(--largeur);
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    margin-bottom:10px;
+    font-family:var(--fmono);
+    font-size:14px;
+    color:var(--encre-douce);
+  }
+  .etat .reines{ color:var(--encre); }
+  .etat .record{ font-size:12px; }
+
+  /* ---------- Plateau ---------- */
+  .plateau{
+    width:var(--largeur);
+    aspect-ratio:1;
+    background:var(--grille);
+    border:3px solid var(--trait-fort);
+    border-radius:var(--radius-md);
+    display:grid;
+    overflow:hidden;
+    box-shadow:var(--shadow-md);
+    user-select:none;
+    -webkit-user-select:none;
+    touch-action:none;
+  }
+  .plateau.occupe{ opacity:.45; pointer-events:none; }
+  .case{
+    position:relative;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border:0;
+    padding:0;
+    background:var(--teinte);
+    cursor:pointer;
+    transition:filter .12s;
+  }
+  .case:hover{ filter:brightness(1.06); }
+  .case:focus-visible{
+    outline:2px solid var(--encre);
+    outline-offset:-3px;
+    z-index:3;
+  }
+  /* Marques */
+  .case svg{ pointer-events:none; }
+  .case .croix{
+    width:26%;
+    height:26%;
+    opacity:.55;
+    color:var(--ink-900);
+    transition:transform .12s var(--ease-spring);
+  }
+  .case .reine{
+    width:62%;
+    height:62%;
+    color:var(--ink-900);
+    filter:drop-shadow(0 1px 1px rgba(0,0,0,.25));
+    animation:pose .22s var(--ease-spring);
+  }
+  .case.indice .reine{ color:var(--indice); }
+  @keyframes pose{ from{ transform:scale(.4); opacity:0 } to{ transform:none; opacity:1 } }
+  /* Conflit : liseré rouge par-dessus la case */
+  .case.conflit::after{
+    content:"";
+    position:absolute;
+    inset:2px;
+    border:2.5px solid var(--erreur);
+    border-radius:4px;
+    animation:pulse 1.1s ease-in-out infinite;
+    pointer-events:none;
+  }
+  @keyframes pulse{ 0%,100%{ opacity:1 } 50%{ opacity:.35 } }
+  .plateau.gagne .case .reine{ animation:fete .5s var(--ease-spring); }
+  @keyframes fete{ 0%{ transform:scale(1) } 45%{ transform:scale(1.28) rotate(-6deg) } 100%{ transform:scale(1) } }
+  @media (prefers-reduced-motion: reduce){
+    .case .reine, .case.conflit::after, .plateau.gagne .case .reine{ animation:none; }
+  }
+
+  /* ---------- Outils ---------- */
+  .outils{
+    width:var(--largeur);
+    display:grid;
+    grid-template-columns:repeat(4, 1fr);
+    gap:8px;
+    margin-top:12px;
+  }
+  .outil{
+    font-family:var(--fsans);
+    font-size:13px;
+    font-weight:600;
+    padding:10px 6px;
+    background:var(--grille);
+    border:1.5px solid var(--trait);
+    border-radius:var(--radius-md);
+    color:var(--encre);
+    cursor:pointer;
+    transition:border-color .15s, background .15s;
+  }
+  .outil:hover{ border-color:var(--encre); }
+  .outil:disabled{ opacity:.4; cursor:default; border-color:var(--trait); }
+  .outil.primaire{
+    background:var(--brand-gradient);
+    background-clip:padding-box;
+    border-color:transparent;
+    color:var(--text-on-accent);
+    box-shadow:var(--shadow-accent);
+  }
+  .outil.primaire:hover{ box-shadow:var(--shadow-lg); }
+
+  .options{
+    width:var(--largeur);
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px;
+    margin-top:10px;
+    font-size:13px;
+    color:var(--encre-douce);
+  }
+  .bascule{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    cursor:pointer;
+  }
+  .bascule input{ accent-color:var(--accent); width:16px; height:16px; cursor:pointer; }
+  .lien-regles{
+    font-family:var(--fmono);
+    font-size:12px;
+    letter-spacing:.06em;
+    color:var(--encre-douce);
+    background:none;
+    border:none;
+    text-decoration:underline;
+    text-underline-offset:3px;
+    cursor:pointer;
+  }
+  .lien-regles:hover{ color:var(--accent); }
+
+  .message{
+    width:var(--largeur);
+    min-height:20px;
+    margin-top:10px;
+    text-align:center;
+    font-size:13px;
+    color:var(--encre-douce);
+  }
+  .message.alerte{ color:var(--erreur); }
+
+  /* ---------- Voile (victoire / règles) ---------- */
+  .voile{
+    position:fixed;
+    inset:0;
+    background:rgba(9,9,11,.55);
+    backdrop-filter:blur(6px);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+    z-index:10;
+  }
+  .voile[hidden]{ display:none; }
+  .carte{
+    background:var(--grille);
+    border:1px solid var(--border);
+    border-radius:var(--radius-xl);
+    padding:34px 30px;
+    max-width:400px;
+    width:100%;
+    text-align:center;
+    box-shadow:var(--shadow-lg);
+  }
+  .carte h2{
+    font-family:var(--fdisplay);
+    font-weight:var(--weight-bold);
+    font-size:30px;
+    margin-bottom:8px;
+  }
+  .carte h2.victoire{ color:var(--accent); }
+  .carte p{
+    color:var(--encre-douce);
+    font-size:14px;
+    margin-bottom:16px;
+    line-height:1.55;
+  }
+  .carte .stats{
+    font-family:var(--fmono);
+    font-size:14px;
+    color:var(--encre);
+    margin-bottom:20px;
+  }
+  .carte ul{
+    text-align:left;
+    margin:0 0 20px;
+    padding-left:20px;
+    color:var(--encre-douce);
+    font-size:14px;
+    line-height:1.65;
+  }
+  .carte ul strong{ color:var(--encre); }
+  .carte button{
+    width:100%;
+    font-family:var(--fsans);
+    font-size:15px;
+    font-weight:600;
+    padding:14px;
+    border:none;
+    border-radius:var(--radius-pill);
+    background:var(--brand-gradient);
+    color:var(--text-on-accent);
+    box-shadow:var(--shadow-accent);
+    cursor:pointer;
+    transition:transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-base);
+  }
+  .carte button:hover{ transform:translateY(-2px); box-shadow:var(--shadow-lg); }
+
+  footer{
+    margin-top:26px;
+    font-family:var(--fmono);
+    font-size:11px;
+    color:var(--encre-douce);
+    letter-spacing:.08em;
+  }
+  footer a:hover{ color:var(--accent); }
+
+  @media (max-width:460px){
+    .etat{ font-size:12px; }
+    .outil{ font-size:12px; padding:9px 4px; }
+    .options{ font-size:12px; }
+    .mot-long{ display:none; }   /* « Nouvelle grille » passerait à la ligne */
+  }
+  /* Écrans peu hauts (portables) : on comprime l'habillage pour que la
+     grille et les boutons tiennent ensemble sans défilement. */
+  @media (max-height:880px){
+    body{ padding:12px 14px 22px; }
+    header{ margin-bottom:12px; }
+    h1{ font-size:clamp(28px, 5vw, 38px); }
+    .sous-titre{ font-size:12px; }
+    .difficultes{ margin-bottom:12px; }
+    footer{ margin-top:16px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">dchirez.fr — page de jeux</div>
+  <h1>QUEENS<span class="point">.</span></h1>
+  <div class="sous-titre">Une reine par ligne, par colonne et par couleur · solution unique</div>
+</header>
+
+<div class="difficultes" role="group" aria-label="Choix de la difficulté" id="difficultes">
+  <button class="chip" data-n="8" aria-pressed="true">Facile · 8×8</button>
+  <button class="chip" data-n="9" aria-pressed="false">Moyen · 9×9</button>
+  <button class="chip" data-n="10" aria-pressed="false">Difficile · 10×10</button>
+</div>
+
+<div class="etat">
+  <div class="reines"><span id="poseesN">0</span>/<span id="totalN">8</span> reines</div>
+  <div class="record" id="record">—</div>
+  <div id="chrono" aria-label="Temps écoulé">00:00</div>
+</div>
+
+<div class="plateau" id="plateau" role="grid" aria-label="Grille Queens"></div>
+
+<div class="outils">
+  <button class="outil" id="btnAnnuler" disabled>↶ Annuler</button>
+  <button class="outil" id="btnEffacer">⌫ Effacer</button>
+  <button class="outil" id="btnIndice">💡 Indice</button>
+  <button class="outil primaire" id="btnNouvelle">Nouvelle<span class="mot-long"> grille</span></button>
+</div>
+
+<div class="options">
+  <label class="bascule">
+    <input type="checkbox" id="croixAuto">
+    Croix automatiques
+  </label>
+  <button class="lien-regles" id="btnRegles">Règles du jeu</button>
+</div>
+
+<div class="message" id="message" role="status" aria-live="polite"></div>
+
+<div class="voile" id="voileVictoire" hidden>
+  <div class="carte" role="alertdialog" aria-labelledby="titreVictoire">
+    <h2 class="victoire" id="titreVictoire">Gagné !</h2>
+    <p id="texteVictoire"></p>
+    <div class="stats" id="statsVictoire"></div>
+    <button id="btnRejouer">Nouvelle grille</button>
+  </div>
+</div>
+
+<div class="voile" id="voileRegles" hidden>
+  <div class="carte" role="dialog" aria-labelledby="titreRegles">
+    <h2 id="titreRegles">Règles</h2>
+    <p>Placez exactement <strong>une reine par ligne, par colonne et par région colorée</strong>.</p>
+    <ul>
+      <li>Deux reines ne peuvent jamais se <strong>toucher</strong>, même en diagonale.</li>
+      <li>Contrairement aux échecs, deux reines <em>peuvent</em> partager une diagonale si elles ne sont pas côte à côte.</li>
+      <li><strong>Clic</strong> : croix → reine → case vide. <strong>Clic droit</strong> : sens inverse.</li>
+      <li><strong>Glissez</strong> le doigt ou la souris pour poser une série de croix.</li>
+      <li>Chaque grille admet une <strong>seule</strong> solution : aucune supposition n'est nécessaire.</li>
+    </ul>
+    <button id="btnFermerRegles">Compris</button>
+  </div>
+</div>
+
+<footer>© <a href="https://dchirez.fr">dchirez.fr</a></footer>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ============================================================
+     Moteur de génération
+     ------------------------------------------------------------
+     1. on tire une solution valide (une reine par ligne/colonne,
+        jamais adjacentes) ;
+     2. on fait croître une région autour de chaque reine jusqu'à
+        remplir le plateau ;
+     3. tant qu'il existe une solution parasite, on déplace l'une
+        de ses cases-reines vers une région voisine : cela invalide
+        cette solution sans toucher à la vraie.
+
+     Tout est enfermé dans cette fonction sans dépendance extérieure :
+     elle est sérialisée telle quelle pour alimenter le Web Worker
+     (voir plus bas), ce qui évite d'en maintenir deux copies.
+     ============================================================ */
+
+  function moteurGeneration(){
+
+  function melanger(t){
+    for(let i=t.length-1;i>0;i--){
+      const j=Math.floor(Math.random()*(i+1));
+      [t[i],t[j]]=[t[j],t[i]];
+    }
+    return t;
+  }
+  const alea = (t) => t[Math.floor(Math.random()*t.length)];
+
+  function voisins(n,i){
+    const r=(i/n)|0, c=i%n, out=[];
+    if(r>0) out.push(i-n);
+    if(r<n-1) out.push(i+n);
+    if(c>0) out.push(i-1);
+    if(c<n-1) out.push(i+1);
+    return out;
+  }
+
+  function solutionAleatoire(n){
+    const sol=new Array(n).fill(-1), prises=new Array(n).fill(false);
+    function bt(r){
+      if(r===n) return true;
+      for(const c of melanger([...Array(n).keys()])){
+        if(prises[c]) continue;
+        if(r>0 && Math.abs(c-sol[r-1])<2) continue;
+        sol[r]=c; prises[c]=true;
+        if(bt(r+1)) return true;
+        prises[c]=false; sol[r]=-1;
+      }
+      return false;
+    }
+    return bt(0) ? sol : null;
+  }
+
+  // taille minimale d'une région : en dessous, elle livrerait sa reine trop facilement
+  const MIN_REGION=2;
+
+  function croitreRegions(n,sol){
+    const reg=new Int8Array(n*n).fill(-1), front=[], poids=[], taille=[];
+    for(let r=0;r<n;r++){
+      reg[r*n+sol[r]]=r;
+      front.push(voisins(n, r*n+sol[r]).filter(v=>reg[v]===-1));
+      // poids inégaux : des régions de tailles très variées contraignent davantage
+      poids.push(0.25 + Math.random()*Math.random()*3);
+      taille.push(1);
+    }
+    let restant=n*n-n;
+    // 1re phase : amener chaque région au minimum requis
+    for(const k of melanger([...Array(n).keys()])){
+      while(taille[k]<MIN_REGION && restant>0){
+        front[k]=front[k].filter(i=>reg[i]===-1);
+        if(!front[k].length) break;
+        const cell=alea(front[k]);
+        reg[cell]=k; taille[k]++; restant--;
+        for(const v of voisins(n,cell)) if(reg[v]===-1) front[k].push(v);
+      }
+    }
+    if(taille.some(t=>t<MIN_REGION)) return null;
+    // 2e phase : croissance libre pondérée jusqu'à remplir le plateau
+    while(restant>0){
+      let total=0; const actives=[];
+      for(let k=0;k<n;k++){
+        front[k]=front[k].filter(i=>reg[i]===-1);
+        if(front[k].length){ actives.push(k); total+=poids[k]; }
+      }
+      if(!actives.length) return null;
+      let x=Math.random()*total, k=actives[0];
+      for(const a of actives){ x-=poids[a]; if(x<=0){ k=a; break; } }
+      const cell=alea(front[k]);
+      reg[cell]=k; restant--;
+      for(const v of voisins(n,cell)) if(reg[v]===-1) front[k].push(v);
+    }
+    return reg;
+  }
+
+  // Énumère au plus `limite` solutions du plateau
+  function solutions(n,reg,limite){
+    const colPrise=new Uint8Array(n), regPrise=new Uint8Array(n);
+    const cur=new Array(n), out=[];
+    function bt(r,prev){
+      if(out.length>=limite) return;
+      if(r===n){ out.push(cur.slice()); return; }
+      for(let c=0;c<n;c++){
+        if(colPrise[c]) continue;
+        if(r>0 && Math.abs(c-prev)<2) continue;
+        const g=reg[r*n+c];
+        if(regPrise[g]) continue;
+        colPrise[c]=1; regPrise[g]=1; cur[r]=c;
+        bt(r+1,c);
+        colPrise[c]=0; regPrise[g]=0;
+        if(out.length>=limite) return;
+      }
+    }
+    bt(0,-99);
+    return out;
+  }
+
+  // La région `g` reste-t-elle d'un seul tenant si on lui retire la case `sauf` ?
+  function resteConnexe(n,reg,g,sauf){
+    let depart=-1, total=0;
+    for(let i=0;i<n*n;i++) if(reg[i]===g && i!==sauf){ if(depart<0) depart=i; total++; }
+    if(depart<0) return false;
+    const vus=new Uint8Array(n*n); vus[depart]=1;
+    const pile=[depart]; let vu=1;
+    while(pile.length){
+      const i=pile.pop();
+      for(const v of voisins(n,i)){
+        if(v!==sauf && reg[v]===g && !vus[v]){ vus[v]=1; vu++; pile.push(v); }
+      }
+    }
+    return vu===total;
+  }
+
+  function tenterGeneration(n,maxIter){
+    const sol=solutionAleatoire(n);
+    if(!sol) return null;
+    const reg=croitreRegions(n,sol);
+    if(!reg) return null;
+    const tabou=[];
+    for(let it=0;it<maxIter;it++){
+      const sols=solutions(n,reg,8);
+      const alts=sols.filter(s=>s.some((c,r)=>c!==sol[r]));
+      if(!alts.length) return { sol, reg };     // solution unique : terminé
+      const tailles=new Array(n).fill(0);
+      for(let i=0;i<n*n;i++) tailles[reg[i]]++;
+      // Une case-reine de `alt` peut changer de région si sa région d'origine
+      // reste connexe et assez grande, et si la région d'accueil la touche.
+      const chercher=(alt,avecTabou)=>{
+        const out=[];
+        for(let r=0;r<n;r++){
+          if(alt[r]===sol[r]) continue;        // ne jamais déplacer une case de la vraie solution
+          const i=r*n+alt[r], g=reg[i];
+          if(tailles[g]<=MIN_REGION) continue;
+          if(avecTabou && tabou.includes(i)) continue;
+          const autres=new Set();
+          for(const v of voisins(n,i)) if(reg[v]!==g) autres.add(reg[v]);
+          if(!autres.size || !resteConnexe(n,reg,g,i)) continue;
+          for(const g2 of autres) out.push([i,g2]);
+        }
+        return out;
+      };
+      // certaines parasites sont irréparables (région trop petite, découpage) :
+      // on essaie les suivantes plutôt que de tout jeter
+      let cands=[];
+      for(const alt of alts){ cands=chercher(alt,true); if(cands.length) break; }
+      if(!cands.length) for(const alt of alts){ cands=chercher(alt,false); if(cands.length) break; }
+      if(!cands.length) return null;
+      melanger(cands);
+      let best=cands[0], bestScore=Infinity;
+      for(const [i,g2] of cands.slice(0,6)){    // on garde le coup qui laisse le moins de parasites
+        const old=reg[i];
+        reg[i]=g2;
+        const s=solutions(n,reg,4).length;
+        reg[i]=old;
+        if(s<bestScore){ bestScore=s; best=[i,g2]; if(s===1) break; }
+      }
+      reg[best[0]]=best[1];
+      tabou.push(best[0]);
+      if(tabou.length>4) tabou.shift();
+    }
+    return null;
+  }
+
+  function genererGrille(n){
+    for(let t=0;t<400;t++){
+      const g=tenterGeneration(n,300);
+      if(g) return g;
+    }
+    return null;
+  }
+
+  return { genererGrille, solutions, alea };
+  }
+
+  const moteur=moteurGeneration();
+  const alea=moteur.alea;
+
+  /* ============================================================
+     Réserve de grilles
+     ------------------------------------------------------------
+     Une grille 10×10 demande quelques centaines de millisecondes de
+     calcul. On la fabrique dans un Web Worker, et on prépare la
+     suivante pendant que le joueur réfléchit : le clic sur
+     « Nouvelle grille » est alors instantané. Si le Worker n'est pas
+     disponible (page ouverte en file://, navigateur restrictif), on
+     retombe sur un calcul synchrone.
+     ============================================================ */
+
+  const TAILLES=[8,9,10];
+  const reserve={}, enCours={};
+  let attente=null;   // { n, utiliser } — partie en attente d'une grille
+  let ouvrier=null;
+
+  try{
+    const src="const M=("+moteurGeneration.toString()+")();"+
+      "onmessage=(e)=>{const g=M.genererGrille(e.data.n);"+
+      "postMessage({n:e.data.n, sol:g?g.sol:null, reg:g?g.reg:null});};";
+    ouvrier=new Worker(URL.createObjectURL(new Blob([src],{type:"text/javascript"})));
+    ouvrier.onmessage=(e)=>{
+      const m=e.data.n;
+      enCours[m]=false;
+      if(!e.data.sol){ demanderGrille(m); return; }   // échec improbable : on relance
+      const grille={ sol:e.data.sol, reg:e.data.reg };
+      if(attente && attente.n===m){
+        const a=attente; attente=null;
+        a.utiliser(grille);
+        demanderGrille(m);
+      }else{
+        reserve[m]=grille;
+      }
+    };
+    ouvrier.onerror=()=>{ ouvrier=null; };
+  }catch(e){ ouvrier=null; }
+
+  function demanderGrille(n){
+    if(!ouvrier || reserve[n] || enCours[n]) return;
+    enCours[n]=true;
+    ouvrier.postMessage({ n });
+  }
+
+  /* ============================================================
+     État de la partie
+     ============================================================ */
+
+  const VIDE=0, CROIX=1, REINE=2;
+  const NIVEAUX={ 8:"Facile", 9:"Moyen", 10:"Difficile" };
+
+  let n=8;                 // taille du plateau
+  let sol=null;            // sol[ligne] = colonne de la reine
+  let reg=null;            // région de chaque case
+  let etat=null;           // VIDE / CROIX / REINE par case
+  let indices=null;        // cases posées via le bouton Indice
+  let histo=[];            // pile d'annulation (instantanés de `etat`)
+  let cases=[];            // éléments DOM
+  let focusIdx=0;          // case ciblée au clavier
+  let nbIndices=0;
+  let debut=0, ecoule=0, chronoId=null, fini=false;
+
+  const $=(id)=>document.getElementById(id);
+  const plateau=$("plateau"), message=$("message");
+
+  const SVG_REINE='<svg class="reine" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 19h14a1 1 0 0 1 0 2H5a1 1 0 0 1 0-2Zm-1.2-2L2.3 8.6a1 1 0 0 1 1.6-1L7.7 10 11 4.7a1 1 0 0 1 1.7 0L16 10l3.8-2.4a1 1 0 0 1 1.6 1L19.9 17H3.8Z"/></svg>';
+  const SVG_CROIX='<svg class="croix" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19"/></svg>';
+
+  /* ---------- Chronomètre ---------- */
+  function fmt(ms){
+    const s=Math.floor(ms/1000);
+    return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0");
+  }
+  function demarrerChrono(){
+    if(chronoId || fini) return;
+    debut=Date.now()-ecoule;
+    chronoId=setInterval(()=>{
+      ecoule=Date.now()-debut;
+      $("chrono").textContent=fmt(ecoule);
+    },250);
+  }
+  function stopperChrono(){
+    if(chronoId){ clearInterval(chronoId); chronoId=null; }
+  }
+
+  /* ---------- Records (localStorage) ---------- */
+  function cleRecord(){ return "queens.record."+n; }
+  function lireRecord(){
+    try{
+      const v=localStorage.getItem(cleRecord());
+      return v ? parseInt(v,10) : null;
+    }catch(e){ return null; }
+  }
+  function ecrireRecord(ms){
+    try{ localStorage.setItem(cleRecord(), String(ms)); }catch(e){}
+  }
+  function majRecord(){
+    const r=lireRecord();
+    $("record").textContent = r ? "record "+fmt(r) : "—";
+  }
+
+  /* ---------- Construction du plateau ---------- */
+  function bordures(i){
+    // trait épais entre deux régions différentes (dessiné en ombre interne :
+    // aucun décalage de mise en page, contrairement à une bordure)
+    const r=(i/n)|0, c=i%n, g=reg[i], parts=[];
+    const diff=(j)=> j<0 || reg[j]!==g;
+    if(r===0 || diff(i-n)) parts.push("inset 0 2px 0 0 var(--trait-fort)");
+    if(c===n-1 || diff(i+1)) parts.push("inset -2px 0 0 0 var(--trait-fort)");
+    if(r===n-1 || diff(i+n)) parts.push("inset 0 -2px 0 0 var(--trait-fort)");
+    if(c===0 || diff(i-1)) parts.push("inset 2px 0 0 0 var(--trait-fort)");
+    parts.push("inset 0 0 0 1px rgba(24,24,27,.10)");
+    return parts.join(",");
+  }
+
+  function construirePlateau(){
+    plateau.style.gridTemplateColumns="repeat("+n+", 1fr)";
+    plateau.style.gridTemplateRows="repeat("+n+", 1fr)";
+    plateau.innerHTML="";
+    cases=[];
+    for(let i=0;i<n*n;i++){
+      const b=document.createElement("button");
+      b.type="button";
+      b.className="case";
+      b.dataset.i=i;
+      b.style.setProperty("--teinte","var(--r"+reg[i]+")");
+      b.style.boxShadow=bordures(i);
+      b.tabIndex = i===0 ? 0 : -1;
+      plateau.appendChild(b);
+      cases.push(b);
+    }
+    focusIdx=0;
+    majPlateau();
+  }
+
+  /* ---------- Rendu ---------- */
+  function conflits(){
+    const marques=new Uint8Array(n*n);
+    const reines=[];
+    for(let i=0;i<n*n;i++) if(etat[i]===REINE) reines.push(i);
+    for(let a=0;a<reines.length;a++){
+      for(let b=a+1;b<reines.length;b++){
+        const i=reines[a], j=reines[b];
+        const ri=(i/n)|0, ci=i%n, rj=(j/n)|0, cj=j%n;
+        const memeZone = ri===rj || ci===cj || reg[i]===reg[j];
+        const collees = Math.abs(ri-rj)<=1 && Math.abs(ci-cj)<=1;
+        if(memeZone || collees){ marques[i]=1; marques[j]=1; }
+      }
+    }
+    return marques;
+  }
+
+  function majPlateau(){
+    const mauvaises=conflits();
+    let posees=0;
+    for(let i=0;i<n*n;i++){
+      const b=cases[i], v=etat[i];
+      if(v===REINE){
+        if(b.dataset.v!=="2"){ b.innerHTML=SVG_REINE; b.dataset.v="2"; }
+        posees++;
+      }else if(v===CROIX){
+        if(b.dataset.v!=="1"){ b.innerHTML=SVG_CROIX; b.dataset.v="1"; }
+      }else if(b.dataset.v!=="0"){
+        b.innerHTML=""; b.dataset.v="0";
+      }
+      b.classList.toggle("conflit", mauvaises[i]===1);
+      b.classList.toggle("indice", indices[i]===1 && v===REINE);
+      const r=(i/n)|0, c=i%n;
+      const nom = v===REINE ? "reine" : (v===CROIX ? "croix" : "vide");
+      b.setAttribute("aria-label","Ligne "+(r+1)+", colonne "+(c+1)+", région "+(reg[i]+1)+" : "+nom);
+    }
+    $("poseesN").textContent=posees;
+    $("btnAnnuler").disabled = histo.length===0 || fini;
+    return posees;
+  }
+
+  /* ---------- Actions du joueur ---------- */
+  function instantane(){
+    histo.push(etat.slice());
+    if(histo.length>400) histo.shift();
+  }
+
+  // Croix automatiques : marque les cases rendues impossibles par cette reine
+  function croixAutour(i){
+    const r=(i/n)|0, c=i%n, g=reg[i];
+    for(let j=0;j<n*n;j++){
+      if(j===i || etat[j]!==VIDE) continue;
+      const rj=(j/n)|0, cj=j%n;
+      const collee = Math.abs(r-rj)<=1 && Math.abs(c-cj)<=1;
+      if(rj===r || cj===c || reg[j]===g || collee) etat[j]=CROIX;
+    }
+  }
+
+  function cycler(i,arriere){
+    if(fini) return;
+    const v=etat[i];
+    let suivant;
+    if(arriere) suivant = v===VIDE ? REINE : (v===REINE ? CROIX : VIDE);
+    else suivant = v===VIDE ? CROIX : (v===CROIX ? REINE : VIDE);
+    etat[i]=suivant;
+    indices[i]=0;
+    if(suivant===REINE && $("croixAuto").checked) croixAutour(i);
+    demarrerChrono();
+    apresCoup();
+  }
+
+  function apresCoup(){
+    const posees=majPlateau();
+    message.textContent="";
+    message.classList.remove("alerte");
+    if(posees===n && !conflits().some(x=>x===1)) gagner();
+  }
+
+  function gagner(){
+    fini=true;
+    stopperChrono();
+    plateau.classList.add("gagne");
+    $("btnAnnuler").disabled=true;
+    const record=lireRecord();
+    const nouveau = nbIndices===0 && (record===null || ecoule<record);
+    if(nouveau){ ecrireRecord(ecoule); majRecord(); }
+    $("texteVictoire").textContent = NIVEAUX[n]+" · grille "+n+"×"+n+" résolue"+
+      (nbIndices ? " avec "+nbIndices+" indice"+(nbIndices>1?"s":"")+"." : " sans aucun indice.");
+    $("statsVictoire").textContent = fmt(ecoule) + (nouveau ? "  ·  nouveau record !" : "");
+    setTimeout(()=>{ $("voileVictoire").hidden=false; $("btnRejouer").focus(); },600);
+  }
+
+  function indice(){
+    if(fini) return;
+    instantane();
+    // 1. retirer une reine mal placée s'il y en a une
+    for(let i=0;i<n*n;i++){
+      if(etat[i]===REINE && sol[(i/n)|0]!==i%n){
+        etat[i]=VIDE;
+        nbIndices++;
+        majPlateau();
+        cases[i].classList.add("conflit");
+        message.textContent="Cette reine ne pouvait pas être là : elle a été retirée.";
+        message.classList.add("alerte");
+        demarrerChrono();
+        return;
+      }
+    }
+    // 2. sinon, révéler une reine manquante
+    const manquantes=[];
+    for(let r=0;r<n;r++){
+      const i=r*n+sol[r];
+      if(etat[i]!==REINE) manquantes.push(i);
+    }
+    if(!manquantes.length){ histo.pop(); return; }
+    const i=alea(manquantes);
+    etat[i]=REINE;
+    indices[i]=1;
+    if($("croixAuto").checked) croixAutour(i);
+    nbIndices++;
+    demarrerChrono();
+    apresCoup();                                  // apresCoup remet le message à zéro…
+    message.textContent="Une reine a été révélée.";
+  }
+
+  function annuler(){
+    if(!histo.length || fini) return;
+    etat=histo.pop();
+    majPlateau();
+    message.textContent="";
+    message.classList.remove("alerte");
+  }
+
+  function effacer(){
+    if(fini) return;
+    instantane();
+    etat.fill(VIDE);
+    indices.fill(0);
+    majPlateau();
+    message.textContent="";
+    message.classList.remove("alerte");
+  }
+
+  /* ---------- Nouvelle partie ---------- */
+  function lancerPartie(g){
+    sol=g.sol; reg=g.reg;
+    etat=new Uint8Array(n*n);
+    indices=new Uint8Array(n*n);
+    histo=[]; nbIndices=0; fini=false;
+    stopperChrono(); ecoule=0; debut=0;
+    $("chrono").textContent="00:00";
+    $("totalN").textContent=n;
+    majRecord();
+    plateau.classList.remove("occupe");
+    construirePlateau();
+    message.textContent="";
+    message.classList.remove("alerte");
+    // on prépare la grille suivante, puis les autres tailles, sans bloquer
+    demanderGrille(n);
+    setTimeout(()=>{ for(const m of TAILLES) demanderGrille(m); }, 1200);
+  }
+
+  function nouvellePartie(){
+    $("voileVictoire").hidden=true;
+    plateau.classList.remove("gagne");
+    message.classList.remove("alerte");
+
+    const prete=reserve[n];
+    if(prete){ reserve[n]=null; lancerPartie(prete); return; }
+
+    plateau.classList.add("occupe");
+    message.textContent="Génération d'une grille à solution unique…";
+
+    if(ouvrier){
+      attente={ n, utiliser:lancerPartie };
+      demanderGrille(n);
+      return;
+    }
+    // secours : calcul sur le fil principal, après un rendu de l'état « occupé »
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      const g=moteur.genererGrille(n);
+      plateau.classList.remove("occupe");
+      if(!g){
+        message.textContent="Échec de la génération, réessayez.";
+        message.classList.add("alerte");
+        return;
+      }
+      lancerPartie(g);
+    }));
+  }
+
+  /* ============================================================
+     Entrées (souris, tactile, clavier)
+     ============================================================ */
+
+  let peint=false, dejaPeintes=null;
+
+  function caseDepuisPoint(x,y){
+    const el=document.elementFromPoint(x,y);
+    const c=el && el.closest ? el.closest(".case") : null;   // le glyphe SVG est sous le pointeur
+    return c ? parseInt(c.dataset.i,10) : -1;
+  }
+
+  plateau.addEventListener("pointerdown",(e)=>{
+    if(e.button===2 || fini) return;
+    const i=caseDepuisPoint(e.clientX,e.clientY);
+    if(i<0) return;
+    e.preventDefault();
+    instantane();
+    peint=true;
+    dejaPeintes=new Set([i]);
+    focusIdx=i;
+    cycler(i,false);
+    plateau.setPointerCapture(e.pointerId);
+  });
+
+  plateau.addEventListener("pointermove",(e)=>{
+    if(!peint) return;
+    const i=caseDepuisPoint(e.clientX,e.clientY);
+    // en glissant on ne fait que semer des croix sur les cases vides
+    if(i<0 || dejaPeintes.has(i) || etat[i]!==VIDE) return;
+    dejaPeintes.add(i);
+    etat[i]=CROIX;
+    apresCoup();
+  });
+
+  const finPeinture=()=>{ peint=false; dejaPeintes=null; };
+  plateau.addEventListener("pointerup",finPeinture);
+  plateau.addEventListener("pointercancel",finPeinture);
+
+  plateau.addEventListener("contextmenu",(e)=>{
+    e.preventDefault();
+    const i=caseDepuisPoint(e.clientX,e.clientY);
+    if(i<0 || fini) return;
+    instantane();
+    cycler(i,true);
+  });
+
+  plateau.addEventListener("keydown",(e)=>{
+    const i=focusIdx, r=(i/n)|0, c=i%n;
+    let cible=-1;
+    if(e.key==="ArrowUp") cible=r>0 ? i-n : i;
+    else if(e.key==="ArrowDown") cible=r<n-1 ? i+n : i;
+    else if(e.key==="ArrowLeft") cible=c>0 ? i-1 : i;
+    else if(e.key==="ArrowRight") cible=c<n-1 ? i+1 : i;
+    else if(e.key===" " || e.key==="Enter"){
+      e.preventDefault();
+      instantane();
+      cycler(i,e.shiftKey);
+      return;
+    }else return;
+    e.preventDefault();
+    cases[i].tabIndex=-1;
+    focusIdx=cible;
+    cases[cible].tabIndex=0;
+    cases[cible].focus();
+  });
+
+  plateau.addEventListener("focusin",(e)=>{
+    if(!e.target.classList.contains("case")) return;
+    const i=parseInt(e.target.dataset.i,10);
+    if(cases[focusIdx]) cases[focusIdx].tabIndex=-1;
+    focusIdx=i;
+    e.target.tabIndex=0;
+  });
+
+  /* ---------- Commandes ---------- */
+  $("difficultes").addEventListener("click",(e)=>{
+    const b=e.target.closest(".chip");
+    if(!b) return;
+    for(const c of $("difficultes").children) c.setAttribute("aria-pressed", String(c===b));
+    n=parseInt(b.dataset.n,10);
+    nouvellePartie();
+  });
+
+  $("btnNouvelle").addEventListener("click",nouvellePartie);
+  $("btnRejouer").addEventListener("click",nouvellePartie);
+  $("btnAnnuler").addEventListener("click",annuler);
+  $("btnEffacer").addEventListener("click",effacer);
+  $("btnIndice").addEventListener("click",indice);
+  $("btnRegles").addEventListener("click",()=>{ $("voileRegles").hidden=false; $("btnFermerRegles").focus(); });
+  $("btnFermerRegles").addEventListener("click",()=>{ $("voileRegles").hidden=true; });
+  $("voileRegles").addEventListener("click",(e)=>{ if(e.target===$("voileRegles")) $("voileRegles").hidden=true; });
+  document.addEventListener("keydown",(e)=>{ if(e.key==="Escape") $("voileRegles").hidden=true; });
+
+  // Préférence « croix automatiques » conservée entre les parties
+  try{
+    $("croixAuto").checked = localStorage.getItem("queens.croixAuto")==="1";
+  }catch(e){}
+  $("croixAuto").addEventListener("change",()=>{
+    try{ localStorage.setItem("queens.croixAuto", $("croixAuto").checked ? "1":"0"); }catch(e){}
+  });
+
+  // Le moteur est exposé pour pouvoir l'éprouver en console
+  // (window.__queens.genererGrille(10)) ; l'état de la partie, lui, reste privé
+  // pour ne pas offrir la solution en clair.
+  window.__queens=moteur;
+
+  nouvellePartie();
+})();
+</script>
+</body>
+</html>
